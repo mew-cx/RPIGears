@@ -117,21 +117,27 @@ typedef struct
    GLint timeToRun;
 
    gear_t *gear1, *gear2, *gear3;
+// current angle of the gear
    GLfloat angle;
+// the degrees that the angle should change each frame
+   GLfloat angleFrame;
+// the degrees per second the gear should rotate at
+   GLfloat angleVel;
+// Average Frames Per Second
+   float avgfps;
 
 } CUBE_STATE_T;
 
 static CUBE_STATE_T _state, *state=&_state;
 
-/* return current time (in seconds) */
-static int current_time(void)
+
+unsigned long getMilliseconds()
 {
-   struct timeval tv;
-   struct timezone tz;
+    struct timespec spec;
 
-   (void) gettimeofday(&tv, &tz);
-
-   return (int) tv.tv_sec;
+    clock_gettime(CLOCK_REALTIME, &spec);
+	
+	return spec.tv_sec * 1000 + spec.tv_nsec / 1000000;
 }
 
 
@@ -480,10 +486,20 @@ static void draw_scene(void)
   glPopMatrix();
 }
 
+static void update_angleFrame(void)
+{
+	state->angleFrame = state->angleVel / state->avgfps;
+}
+
 static void setup_user_options(int argc, char *argv[])
 {
   int i, printhelp = 0;
   EGLBoolean result;
+
+  // setup some default states
+  state->viewDist = 18.0;
+  state->avgfps = 300;
+  state->angleVel = 70;
 
   for ( i=1; i<argc; i++ ) {
     if (strcmp(argv[i], "-info")==0) {
@@ -500,6 +516,7 @@ static void setup_user_options(int argc, char *argv[])
       // want vertical sync
       result = eglSwapInterval(state->display, 1 );
       assert(EGL_FALSE != result);
+      state->avgfps = 60;
     }
     else {
 	  printf("\nunknown option: %s\n", argv[i]);
@@ -515,7 +532,11 @@ static void setup_user_options(int argc, char *argv[])
     printf("-info: display opengl driver info\n");
 
   }
+  
+  update_angleFrame();
+  
 }
+
 
 static void init_scene()
 {
@@ -524,7 +545,6 @@ static void init_scene()
   const GLfloat green[4] = {0.0, 0.8, 0.2, 1.0};
   const GLfloat blue[4] = {0.2, 0.2, 1.0, 1.0};
 
-  state->viewDist = 18.0;
 
   glLightfv(GL_LIGHT0, GL_POSITION, light_pos);
   glEnable(GL_CULL_FACE);
@@ -547,7 +567,7 @@ static void init_scene()
 static void update_gear_rotation(void)
 {
     /* advance gear rotation for next frame */
-    state->angle += 0.3;
+    state->angle += state->angleFrame;
     if (state->angle > 360.0)
       state->angle -= 360.0;
 }
@@ -555,9 +575,10 @@ static void update_gear_rotation(void)
 static void run_gears()
 {
   const GLint ttr = state->timeToRun;
-  const int st = current_time();
-  int   dt, ct = st;
-  int   seconds = st;
+  const unsigned long st = getMilliseconds();
+  unsigned long ct = st;
+  unsigned long prevct = ct, seconds = st;
+  float dt;
   float fps;
   int   frames = 0;
   int   active = FRAMES;
@@ -566,7 +587,18 @@ static void run_gears()
   // is either 0 or time since start is less than time to run (ttr)
   while ( active && ((ttr == 0) || (ct - st < ttr)) )
   {
-    ct = current_time();
+    ct = getMilliseconds();
+    
+    frames++;
+    dt = (float)(ct - seconds)/1000.0f;
+    // adjust angleFrame each half second
+    if ((ct - prevct) > 500) {
+	  if (dt > 0.0f) {
+        state->avgfps = state->avgfps * 0.4f + (float)frames / dt * 0.6f;
+	    update_angleFrame();
+	  }
+	  prevct = ct;	
+	}
 
     update_gear_rotation();
 
@@ -575,12 +607,10 @@ static void run_gears()
     // swap the current buffer for the next new frame
     eglSwapBuffers(state->display, state->surface);
 
-    frames++;
-    dt = ct - seconds;
-    if (dt >= 5)
+    if (dt >= 5.0f)
     {
-      fps = (float)frames / (float)dt;
-      printf("%d frames in %d seconds = %6.1f FPS\n", frames, dt, fps);
+      fps = (float)frames  / dt;
+      printf("%d frames in %3.1f seconds = %3.1f FPS\n", frames, dt, fps);
       seconds = ct;
       frames = 0;
     }
@@ -664,8 +694,9 @@ static void exit_func(void)
    free_gear(state->gear1);
    free_gear(state->gear2);
    free_gear(state->gear3);
-
-   printf("\nrpigears finished\n");
+   
+   printf("\nRPIGears finished\n");
+   
 } // exit_func()
 
 //==============================================================================
