@@ -478,8 +478,6 @@ static void draw_scene(void)
     glPopMatrix();
 
   glPopMatrix();
-  glFlush();
-  glFinish();
 }
 
 static void setup_user_options(int argc, char *argv[])
@@ -549,7 +547,7 @@ static void init_scene()
 static void update_gear_rotation(void)
 {
     /* advance gear rotation for next frame */
-    state->angle += 1.0;
+    state->angle += 0.3;
     if (state->angle > 360.0)
       state->angle -= 360.0;
 }
