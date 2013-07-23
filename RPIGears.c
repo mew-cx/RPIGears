@@ -98,7 +98,13 @@ typedef struct {
   GLshort *indices;
   GLfloat color[4];
   int nvertices, nindices;
-  GLuint ibo;
+  GLuint vboId; // ID for vertex buffer object
+  GLuint iboId; // ID for index buffer object
+  
+  GLuint tricount; // number of triangles to draw
+  GLvoid *vertex_p; // offset or pointer to first vertex
+  GLvoid *normal_p; // offset or pointer to first normal
+  GLvoid *index_p;  // offset or pointer to first index
 } gear_t;
 
 
@@ -125,6 +131,7 @@ typedef struct
    GLfloat angleVel;
 // Average Frames Per Second
    float avgfps;
+   int useVBO;
 
 } CUBE_STATE_T;
 
@@ -438,20 +445,43 @@ static gear_t* gear( const GLfloat inner_radius, const GLfloat outer_radius,
     INDEX(ix1, ix3, ix2);
   }
 
+  // setup pointers/offsets for draw operations
+  if (state->useVBO) {
+	// for VBO use offsets into the buffer object
+    gear->vertex_p = 0;
+    gear->normal_p = (GLvoid *)sizeof(gear->vertices[0].pos);
+    gear->index_p = 0;
+  }
+  else {
+	// for Vertex Array use pointers to where the buffer starts
+    gear->vertex_p = gear->vertices[0].pos;
+    gear->normal_p = gear->vertices[0].norm;
+    gear->index_p = gear->indices;
+  }
+  
+  gear->tricount = gear->nindices / 3;
+
   return gear;
 }
 
 void draw_gear(gear_t* gear) {
-
+	
   glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, gear->color);
-  glVertexPointer(3, GL_FLOAT, sizeof(vertex_t), gear->vertices[0].pos);
-  glNormalPointer(GL_FLOAT, sizeof(vertex_t), gear->vertices[0].norm);
-  glDrawElements(GL_TRIANGLES, gear->nindices/3, GL_UNSIGNED_SHORT,
-                   gear->indices);
+  
+  if (state->useVBO) {
+	glBindBuffer(GL_ARRAY_BUFFER, gear->vboId);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gear->iboId);
+  }
+  
+  glNormalPointer(GL_FLOAT, sizeof(vertex_t), gear->normal_p);
+  glVertexPointer(3, GL_FLOAT, sizeof(vertex_t), gear->vertex_p);
+    
+  glDrawElements(GL_TRIANGLES, gear->tricount, GL_UNSIGNED_SHORT,
+                   gear->index_p);
+  
 }
 
 static GLfloat view_rotx = 25.0, view_roty = 30.0, view_rotz = 0.0;
-
 
 static void draw_scene(void)
 {
@@ -500,6 +530,7 @@ static void setup_user_options(int argc, char *argv[])
   state->viewDist = 18.0;
   state->avgfps = 300;
   state->angleVel = 70;
+  state->useVBO = 0;
 
   for ( i=1; i<argc; i++ ) {
     if (strcmp(argv[i], "-info")==0) {
@@ -518,6 +549,10 @@ static void setup_user_options(int argc, char *argv[])
       assert(EGL_FALSE != result);
       state->avgfps = 60;
     }
+    else if ( strcmp(argv[i], "-vbo")==0) {
+	  // use VBO instead of Vertex Array
+	  state->useVBO = 1;
+	}
     else {
 	  printf("\nunknown option: %s\n", argv[i]);
       printhelp = 1;
@@ -537,6 +572,19 @@ static void setup_user_options(int argc, char *argv[])
   
 }
 
+static void make_gear_vbo(gear_t *gear)
+{
+   // setup the vertex buffer that will hold the vertices and normals 
+   glGenBuffers(1, &gear->vboId);
+   glBindBuffer(GL_ARRAY_BUFFER, gear->vboId);
+   glBufferData(GL_ARRAY_BUFFER, sizeof(vertex_t) * gear->nvertices, gear->vertices, GL_STATIC_DRAW);
+   
+   // setup the index buffer that will hold the indices
+   glGenBuffers(1, &gear->iboId);
+   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gear->iboId);
+   glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLshort) * gear->nindices, gear->indices, GL_STATIC_DRAW);
+   	
+}
 
 static void init_scene()
 {
@@ -554,14 +602,23 @@ static void init_scene()
 
   glShadeModel(GL_SMOOTH);
 
-  glEnableClientState(GL_NORMAL_ARRAY);
-  glEnableClientState(GL_VERTEX_ARRAY);
 
-
-  /* make the gears */
+  /* make the meshes for the gears */
   state->gear1 = gear(1.0, 4.0, 2.5, 20, 0.7, red);
   state->gear2 = gear(0.5, 2.0, 3.0, 10, 0.7, green);
   state->gear3 = gear(1.3, 2.0, 1.5, 10, 0.7, blue);
+  
+  // if VBO enabled then set them up for each gear
+  if (state->useVBO) {
+    make_gear_vbo(state->gear1);
+    make_gear_vbo(state->gear2);
+    make_gear_vbo(state->gear3);
+  }
+
+  // vertex and normal array will always be used so do it here once  
+  glEnableClientState(GL_NORMAL_ARRAY);
+  glEnableClientState(GL_VERTEX_ARRAY);
+  
 }
 
 static void update_gear_rotation(void)
@@ -669,6 +726,12 @@ static void init_model_proj(void)
 static void free_gear(gear_t *gear)
 {
    if (gear) {
+	 if (gear->vboId) {
+	   glDeleteBuffers(1, &gear->vboId);
+	 }
+	 if (gear->iboId) {
+	   glDeleteBuffers(1, &gear->iboId);
+	 }
      free(gear->vertices);
      free(gear->indices);
      free(gear);
@@ -680,6 +743,12 @@ static void free_gear(gear_t *gear)
 static void exit_func(void)
 // Function to be passed to atexit().
 {
+   glDisableClientState(GL_NORMAL_ARRAY);
+   glDisableClientState(GL_VERTEX_ARRAY);
+
+   glBindBuffer(GL_ARRAY_BUFFER, 0);
+   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
    // clear screen
    glClear( GL_COLOR_BUFFER_BIT );
    eglSwapBuffers(state->display, state->surface);
