@@ -561,10 +561,11 @@ static void setup_user_options(int argc, char *argv[])
 
   if (printhelp) {
     printf("\nusage: RPIGears [options]\n");
-    printf("options: -vsync -exit -info\n");
+    printf("options: -vsync | -exit | -info | -vbo\n");
     printf("-vsync: wait for vertical sync before new frame is displayed\n");
     printf("-exit: automatically exit RPIGears after 30 seconds\n");
     printf("-info: display opengl driver info\n");
+    printf("-vbo: use vertex buffer object in GPU memory\n");
 
   }
   
