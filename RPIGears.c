@@ -76,6 +76,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "bcm_host.h"
 
 #include "GLES/gl.h"
+#include "GLES2/gl2.h"
 #include "EGL/egl.h"
 #include "EGL/eglext.h"
 
@@ -124,6 +125,15 @@ typedef struct
    uint timeToRun;
 
    gear_t *gear1, *gear2, *gear3;
+   
+// The location of the shader uniforms 
+   GLuint ModelViewProjectionMatrix_location,
+              NormalMatrix_location,
+              LightSourcePosition_location,
+              MaterialColor_location;
+// The projection matrix
+   GLfloat ProjectionMatrix[16];
+   
 // current angle of the gear
    GLfloat angle;
 // the degrees that the angle should change each frame
@@ -141,6 +151,44 @@ typedef struct
 
 static CUBE_STATE_T _state, *state=&_state;
 
+// vertex shader for gles2
+static const char vertex_shader[] =
+"attribute vec3 position;\n"
+"attribute vec3 normal;\n"
+"\n"
+"uniform mat4 ModelViewProjectionMatrix;\n"
+"uniform mat4 NormalMatrix;\n"
+"uniform vec4 LightSourcePosition;\n"
+"uniform vec4 MaterialColor;\n"
+"\n"
+"varying vec4 Color;\n"
+"\n"
+"void main(void)\n"
+"{\n"
+"    // Transform the normal to eye coordinates\n"
+"    vec3 N = normalize(vec3(NormalMatrix * vec4(normal, 1.0)));\n"
+"\n"
+"    // The LightSourcePosition is actually its direction for directional light\n"
+"    vec3 L = normalize(LightSourcePosition.xyz);\n"
+"\n"
+"    // Multiply the diffuse value by the vertex color (which is fixed in this case)\n"
+"    // to get the actual color that we will use to draw this vertex with\n"
+"    float diffuse = max(dot(N, L), 0.0);\n"
+"    Color = diffuse * MaterialColor;\n"
+"\n"
+"    // Transform the position to clip coordinates\n"
+"    gl_Position = ModelViewProjectionMatrix * vec4(position, 1.0);\n"
+"}";
+
+// fragment shader for gles2
+static const char fragment_shader[] =
+"//precision mediump float;\n"
+"varying vec4 Color;\n"
+"\n"
+"void main(void)\n"
+"{\n"
+"    gl_FragColor = Color;\n"
+"}";
 
 uint getMilliseconds()
 {
@@ -175,8 +223,168 @@ int _kbhit(void) {
     return bytesWaiting;
 }
 
+/** 
+ * Multiplies two 4x4 matrices.
+ * 
+ * The result is stored in matrix m.
+ * 
+ * @param m the first matrix to multiply
+ * @param n the second matrix to multiply
+ */
+static void multiply(GLfloat *m, const GLfloat *n)
+{
+   GLfloat tmp[16];
+   const GLfloat *row, *column;
+   div_t d;
+   int i, j;
+
+   for (i = 0; i < 16; i++) {
+      tmp[i] = 0;
+      d = div(i, 4);
+      row = n + d.quot * 4;
+      column = m + d.rem;
+      for (j = 0; j < 4; j++)
+         tmp[i] += row[j] * column[j * 4];
+   }
+   memcpy(m, &tmp, sizeof tmp);
+}
+
+/** 
+ * Rotates a 4x4 matrix.
+ * 
+ * @param[in,out] m the matrix to rotate
+ * @param angle the angle to rotate
+ * @param x the x component of the direction to rotate to
+ * @param y the y component of the direction to rotate to
+ * @param z the z component of the direction to rotate to
+ */
+static void rotate(GLfloat *m, GLfloat angle, GLfloat x, GLfloat y, GLfloat z)
+{
+   double s, c;
+
+   sincos(angle, &s, &c);
+   GLfloat r[16] = {
+      x * x * (1 - c) + c,     y * x * (1 - c) + z * s, x * z * (1 - c) - y * s, 0,
+      x * y * (1 - c) - z * s, y * y * (1 - c) + c,     y * z * (1 - c) + x * s, 0, 
+      x * z * (1 - c) + y * s, y * z * (1 - c) - x * s, z * z * (1 - c) + c,     0,
+      0, 0, 0, 1
+   };
+
+   multiply(m, r);
+}
+
+
+/** 
+ * Translates a 4x4 matrix.
+ * 
+ * @param[in,out] m the matrix to translate
+ * @param x the x component of the direction to translate to
+ * @param y the y component of the direction to translate to
+ * @param z the z component of the direction to translate to
+ */
+static void translate(GLfloat *m, GLfloat x, GLfloat y, GLfloat z)
+{
+   GLfloat t[16] = { 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  x, y, z, 1 };
+
+   multiply(m, t);
+}
+
+/** 
+ * Creates an identity 4x4 matrix.
+ * 
+ * @param m the matrix make an identity matrix
+ */
+static void identity(GLfloat *m)
+{
+   GLfloat t[16] = {
+      1.0, 0.0, 0.0, 0.0,
+      0.0, 1.0, 0.0, 0.0,
+      0.0, 0.0, 1.0, 0.0,
+      0.0, 0.0, 0.0, 1.0,
+   };
+
+   memcpy(m, t, sizeof(t));
+}
+
+/** 
+ * Transposes a 4x4 matrix.
+ *
+ * @param m the matrix to transpose
+ */
+static void transpose(GLfloat *m)
+{
+   GLfloat t[16] = {
+      m[0], m[4], m[8],  m[12],
+      m[1], m[5], m[9],  m[13],
+      m[2], m[6], m[10], m[14],
+      m[3], m[7], m[11], m[15]};
+
+   memcpy(m, t, sizeof(t));
+}
+
+/**
+ * Inverts a 4x4 matrix.
+ *
+ * This function can currently handle only pure translation-rotation matrices.
+ * Read http://www.gamedev.net/community/forums/topic.asp?topic_id=425118
+ * for an explanation.
+ */
+static void invert(GLfloat *m)
+{
+   GLfloat t[16];
+   identity(t);
+
+   // Extract and invert the translation part 't'. The inverse of a
+   // translation matrix can be calculated by negating the translation
+   // coordinates.
+   t[12] = -m[12]; t[13] = -m[13]; t[14] = -m[14];
+
+   // Invert the rotation part 'r'. The inverse of a rotation matrix is
+   // equal to its transpose.
+   m[12] = m[13] = m[14] = 0;
+   transpose(m);
+
+   // inv(m) = inv(r) * inv(t)
+   multiply(m, t);
+}
+
+/** 
+ * Calculate a perspective projection transformation.
+ * 
+ * @param m the matrix to save the transformation in
+ * @param fovy the field of view in the y direction
+ * @param aspect the view aspect ratio
+ * @param zNear the near clipping plane
+ * @param zFar the far clipping plane
+ */
+void perspective(GLfloat *m, GLfloat fovy, GLfloat aspect, GLfloat zNear, GLfloat zFar)
+{
+   GLfloat tmp[16];
+   identity(tmp);
+
+   double sine, cosine, cotangent, deltaZ;
+   GLfloat radians = fovy / 2 * M_PI / 180;
+
+   deltaZ = zFar - zNear;
+   sincos(radians, &sine, &cosine);
+
+   if ((deltaZ == 0) || (sine == 0) || (aspect == 0))
+      return;
+
+   cotangent = cosine / sine;
+
+   tmp[0] = cotangent / aspect;
+   tmp[5] = cotangent;
+   tmp[10] = -(zFar + zNear) / deltaZ;
+   tmp[11] = -1;
+   tmp[14] = -2 * zNear * zFar / deltaZ;
+   tmp[15] = 0;
+
+   memcpy(m, tmp, sizeof(tmp));
+}
+
 /***********************************************************
- * Name: init_ogl
+ * Name: init_egl
  *
  * Arguments:
  *       CUBE_STATE_T *state - holds OGLES model info
@@ -186,7 +394,7 @@ int _kbhit(void) {
  * Returns: void
  *
  ***********************************************************/
-static void init_ogl(void)
+static void init_egl(void)
 {
    int32_t success = 0;
    EGLBoolean result;
@@ -486,7 +694,103 @@ static gear_t* gear( const GLfloat inner_radius, const GLfloat outer_radius,
   return gear;
 }
 
-void draw_gear(gear_t* gear) {
+
+
+static GLfloat view_rotx = 25.0, view_roty = 30.0, view_rotz = 0.0;
+/**
+ * Draws a gear in GLES 2 mode.
+ *
+ * @param gear the gear to draw
+ * @param transform the current transformation matrix
+ * @param x the x position to draw the gear at
+ * @param y the y position to draw the gear at
+ * @param angle the rotation angle of the gear
+ * @param color the color of the gear
+ */
+static void draw_gearGLES2(gear_t *gear, GLfloat *transform,
+      GLfloat x, GLfloat y, GLfloat angle)
+{
+   GLfloat model_view[16];
+   GLfloat normal_matrix[16];
+   GLfloat model_view_projection[16];
+
+   /* Translate and rotate the gear */
+   memcpy(model_view, transform, sizeof (model_view));
+   translate(model_view, x, y, 0);
+   rotate(model_view, 2 * M_PI * angle / 360.0, 0, 0, 1);
+
+   /* Create and set the ModelViewProjectionMatrix */
+   memcpy(model_view_projection, state->ProjectionMatrix, sizeof(model_view_projection));
+   multiply(model_view_projection, model_view);
+
+   glUniformMatrix4fv(state->ModelViewProjectionMatrix_location, 1, GL_FALSE,
+                      model_view_projection);
+
+   /* 
+    * Create and set the NormalMatrix. It's the inverse transpose of the
+    * ModelView matrix.
+    */
+   memcpy(normal_matrix, model_view, sizeof (normal_matrix));
+   invert(normal_matrix);
+   transpose(normal_matrix);
+   glUniformMatrix4fv(state->NormalMatrix_location, 1, GL_FALSE, normal_matrix);
+
+   /* Set the gear color */
+   glUniform4fv(state->MaterialColor_location, 1, gear->color);
+
+   if (state->useVBO) {
+     glBindBuffer(GL_ARRAY_BUFFER, gear->vboId);
+  	 glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gear->iboId);
+   }
+
+   /* Set up the position of the attributes in the vertex buffer object */
+   // setup where vertex data is
+   glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE,
+         sizeof(vertex_t), gear->vertex_p);
+   // setup where normal data is
+   glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE,
+         sizeof(vertex_t), gear->normal_p);
+
+   /* Enable the attributes */
+   glEnableVertexAttribArray(0);
+   glEnableVertexAttribArray(1);
+    
+   glDrawElements(GL_TRIANGLES, gear->tricount, GL_UNSIGNED_SHORT,
+                   gear->index_p);
+
+   /* Disable the attributes */
+   glDisableVertexAttribArray(1);
+   glDisableVertexAttribArray(0);
+}
+
+/** 
+ * Draws the gears in GLES 2 mode.
+ */
+static void draw_sceneGLES2(void)
+{
+   GLfloat transform[16];
+   identity(transform);
+
+   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+   /* Translate and rotate the view */
+   translate(transform, 0.9, 0.0, -state->viewDist);
+   rotate(transform, 2 * M_PI * view_rotx / 360.0, 1, 0, 0);
+   rotate(transform, 2 * M_PI * view_roty / 360.0, 0, 1, 0);
+   rotate(transform, 2 * M_PI * view_rotz / 360.0, 0, 0, 1);
+
+   /* Draw the gears */
+   draw_gearGLES2(state->gear1, transform, -3.0, -2.0, state->angle);
+   draw_gearGLES2(state->gear2, transform, 3.1, -2.0, -2 * state->angle - 9.0);
+   draw_gearGLES2(state->gear3, transform, -3.1, 4.2, -2 * state->angle - 25.0);
+}
+
+void draw_gearGLES1(gear_t* gear, GLfloat x, GLfloat y, GLfloat angle)
+{
+
+  glPushMatrix();
+  glTranslatef(x, y, 0.0);
+  glRotatef(angle, 0.0, 0.0, 1.0);
 	
   glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, gear->color);
   
@@ -500,18 +804,11 @@ void draw_gear(gear_t* gear) {
     
   glDrawElements(GL_TRIANGLES, gear->tricount, GL_UNSIGNED_SHORT,
                    gear->index_p);
+  glPopMatrix();
   
 }
 
-
-static GLfloat view_rotx = 25.0, view_roty = 30.0, view_rotz = 0.0;
-
-static void draw_sceneGL2(void)
-{
-
-}
-
-static void draw_sceneGL1(void)
+static void draw_sceneGLES1(void)
 {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -523,23 +820,9 @@ static void draw_sceneGL1(void)
     glRotatef(view_roty, 0.0, 1.0, 0.0);
     glRotatef(view_rotz, 0.0, 0.0, 1.0);
 
-    glPushMatrix();
-      glTranslatef(-3.0, -2.0, 0.0);
-      glRotatef(state->angle, 0.0, 0.0, 1.0);
-      draw_gear(state->gear1);
-    glPopMatrix();
-
-    glPushMatrix();
-      glTranslatef(3.1, -2.0, 0.0);
-      glRotatef(-2.0 * state->angle - 9.0, 0.0, 0.0, 1.0);
-      draw_gear(state->gear2);
-    glPopMatrix();
-
-    glPushMatrix();
-      glTranslatef(-3.1, 4.2, 0.0);
-      glRotatef(-2.0 * state->angle - 25.0, 0.0, 0.0, 1.0);
-      draw_gear(state->gear3);
-    glPopMatrix();
+    draw_gearGLES1(state->gear1, -3.0, -2.0, state->angle);
+    draw_gearGLES1(state->gear2, 3.1, -2.0, -2.0 * state->angle - 9.0);
+    draw_gearGLES1(state->gear3, -3.1, 4.2, -2.0 * state->angle - 25.0);
 
   glPopMatrix();
 }
@@ -615,12 +898,62 @@ static void make_gear_vbo(gear_t *gear)
    	
 }
 
-static void init_scene()
+static void init_scene_GLES2(void)
+{
+   GLuint v, f, program;
+   const char *p;
+   char msg[512];
+
+   // The direction of the directional light for the scene */
+   const GLfloat LightSourcePosition[4] = { 5.0, 5.0, 10.0, 1.0};
+
+   glEnable(GL_CULL_FACE);
+   glEnable(GL_DEPTH_TEST);
+
+   /* Compile the vertex shader */
+   p = vertex_shader;
+   v = glCreateShader(GL_VERTEX_SHADER);
+   glShaderSource(v, 1, &p, NULL);
+   glCompileShader(v);
+   glGetShaderInfoLog(v, sizeof msg, NULL, msg);
+   printf("vertex shader info: %s\n", msg);
+
+   /* Compile the fragment shader */
+   p = fragment_shader;
+   f = glCreateShader(GL_FRAGMENT_SHADER);
+   glShaderSource(f, 1, &p, NULL);
+   glCompileShader(f);
+   glGetShaderInfoLog(f, sizeof msg, NULL, msg);
+   printf("fragment shader info: %s\n", msg);
+
+   /* Create and link the shader program */
+   program = glCreateProgram();
+   glAttachShader(program, v);
+   glAttachShader(program, f);
+   glBindAttribLocation(program, 0, "position");
+   glBindAttribLocation(program, 1, "normal");
+
+   glLinkProgram(program);
+   glGetProgramInfoLog(program, sizeof msg, NULL, msg);
+   printf("info: %s\n", msg);
+
+   /* Enable the shaders */
+   glUseProgram(program);
+
+   /* Get the locations of the uniforms so we can access them */
+   state->ModelViewProjectionMatrix_location = glGetUniformLocation(program, "ModelViewProjectionMatrix");
+   state->NormalMatrix_location = glGetUniformLocation(program, "NormalMatrix");
+   state->LightSourcePosition_location = glGetUniformLocation(program, "LightSourcePosition");
+   state->MaterialColor_location = glGetUniformLocation(program, "MaterialColor");
+
+   /* Set the LightSourcePosition uniform which is constant throught the program */
+   glUniform4fv(state->LightSourcePosition_location, 1, LightSourcePosition);
+
+}
+
+static void init_scene_GLES1()
 {
   const GLfloat light_pos[4] = {5.0, 5.0, 10.0, 0.0};
-  const GLfloat red[4] = {0.8, 0.1, 0.0, 1.0};
-  const GLfloat green[4] = {0.0, 0.8, 0.2, 1.0};
-  const GLfloat blue[4] = {0.2, 0.2, 1.0, 1.0};
 
 
   glLightfv(GL_LIGHT0, GL_POSITION, light_pos);
@@ -631,6 +964,13 @@ static void init_scene()
 
   glShadeModel(GL_SMOOTH);
 
+}
+
+static void build_gears()
+{
+  const GLfloat red[4] = {0.8, 0.1, 0.0, 1.0};
+  const GLfloat green[4] = {0.0, 0.8, 0.2, 1.0};
+  const GLfloat blue[4] = {0.2, 0.2, 1.0, 1.0};
 
   /* make the meshes for the gears */
   state->gear1 = gear(1.0, 4.0, 2.5, 20, 0.7, red);
@@ -690,10 +1030,10 @@ static void run_gears()
 
     // draw the scene for the next new frame
     if (state->useGLES2) {
-	  draw_sceneGL2();
+	  draw_sceneGLES2();
 	}
 	else {
-      draw_sceneGL1();
+      draw_sceneGLES1();
     }
     
     // swap the current buffer for the next new frame
@@ -717,6 +1057,12 @@ static void run_gears()
   }
 }
 
+static void init_model_projGLES2(void)
+{
+   /* Update the projection matrix */
+   perspective(state->ProjectionMatrix, 45.0, (float)state->screen_width / (float)state->screen_height, 1.0, 50.0);
+	
+}
 
 /***********************************************************
  * Name: init_model_proj
@@ -729,7 +1075,7 @@ static void run_gears()
  * Returns: void
  *
  ***********************************************************/
-static void init_model_proj(void)
+static void init_model_projGLES1(void)
 {
    // near clipping plane
    const float nearp = 1.0f;
@@ -815,12 +1161,21 @@ int main (int argc, char *argv[])
    setup_user_options(argc, argv);
 
    // Start OGLES
-   init_ogl();
+   init_egl();
 
-   init_scene();
-
-   // Setup the model projection/world
-   init_model_proj();
+   build_gears();
+   
+   // setup the scene based on rendering mode
+   if (state->useGLES2) {
+	 init_scene_GLES2();
+     // Setup the model projection/world
+     init_model_projGLES2();
+   }
+   else { // using gles1
+     init_scene_GLES1();
+     // Setup the model projection/world
+     init_model_projGLES1();
+   }
 
    // animate the gears
    run_gears();
@@ -829,4 +1184,3 @@ int main (int argc, char *argv[])
 
    return 0;
 }
-
