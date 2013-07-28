@@ -121,7 +121,7 @@ typedef struct
    GLfloat viewDist;
    GLfloat distance_inc;
 // number of seconds to run the demo
-   int timeToRun;
+   uint timeToRun;
 
    gear_t *gear1, *gear2, *gear3;
 // current angle of the gear
@@ -142,7 +142,7 @@ typedef struct
 static CUBE_STATE_T _state, *state=&_state;
 
 
-int getMilliseconds()
+uint getMilliseconds()
 {
     struct timespec spec;
 
@@ -660,10 +660,10 @@ static void update_gear_rotation(void)
 
 static void run_gears()
 {
-  const int ttr = state->timeToRun;
-  const int st = getMilliseconds();
-  int ct = st;
-  int prevct = ct, seconds = st;
+  const uint ttr = state->timeToRun;
+  const uint st = getMilliseconds();
+  uint ct = st;
+  uint prevct = ct, seconds = st;
   float dt;
   float fps;
   int   frames = 0;
