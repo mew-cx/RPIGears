@@ -87,6 +87,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
    #define M_PI 3.141592654
 #endif
 
+#define check() assert(glGetError() == 0)
 
 typedef struct {
   GLfloat pos[3];
@@ -132,6 +133,8 @@ typedef struct
 // Average Frames Per Second
    float avgfps;
    int useVBO;
+   int useGLES2;
+   int useVSync;
 
 } CUBE_STATE_T;
 
@@ -207,6 +210,12 @@ static void init_ogl(void)
       EGL_NONE
    };
 
+  static EGLint context_attributes[] = 
+   {
+      EGL_CONTEXT_CLIENT_VERSION, 1,
+      EGL_NONE
+   };
+
    EGLConfig config;
 
    // get an EGL display connection
@@ -221,8 +230,14 @@ static void init_ogl(void)
    result = eglChooseConfig(state->display, attribute_list, &config, 1, &num_config);
    assert(EGL_FALSE != result);
 
+   // bind the gles api to this thread - this is default so not required
+   result = eglBindAPI(EGL_OPENGL_ES_API);
+   assert(EGL_FALSE != result);
+
    // create an EGL rendering context
-   state->context = eglCreateContext(state->display, config, EGL_NO_CONTEXT, NULL);
+   // select es 1.x or 2.x based on user option
+   context_attributes[1] = state->useGLES2 + 1;
+   state->context = eglCreateContext(state->display, config, EGL_NO_CONTEXT, context_attributes);
    assert(state->context!=EGL_NO_CONTEXT);
 
    // create an EGL window surface
@@ -258,8 +273,8 @@ static void init_ogl(void)
    result = eglMakeCurrent(state->display, state->surface, state->surface, state->context);
    assert(EGL_FALSE != result);
 
-   // default to no vertical sync
-   result = eglSwapInterval(state->display, 0 );
+   // default to no vertical sync but user option may turn it on
+   result = eglSwapInterval(state->display, state->useVSync );
    assert(EGL_FALSE != result);
 
    // Set background color and clear buffers
@@ -268,7 +283,6 @@ static void init_ogl(void)
    // Enable back face culling.
    glEnable(GL_CULL_FACE);
 
-   glMatrixMode(GL_MODELVIEW);
 }
 
 /**
@@ -481,9 +495,15 @@ void draw_gear(gear_t* gear) {
   
 }
 
+
 static GLfloat view_rotx = 25.0, view_roty = 30.0, view_rotz = 0.0;
 
-static void draw_scene(void)
+static void draw_sceneGL2(void)
+{
+
+}
+
+static void draw_sceneGL1(void)
 {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -524,7 +544,6 @@ static void update_angleFrame(void)
 static void setup_user_options(int argc, char *argv[])
 {
   int i, printhelp = 0;
-  EGLBoolean result;
 
   // setup some default states
   state->viewDist = 18.0;
@@ -545,13 +564,16 @@ static void setup_user_options(int argc, char *argv[])
     }
     else if ( strcmp(argv[i], "-vsync")==0) {
       // want vertical sync
-      result = eglSwapInterval(state->display, 1 );
-      assert(EGL_FALSE != result);
+      state->useVSync = 1;
       state->avgfps = 60;
     }
     else if ( strcmp(argv[i], "-vbo")==0) {
 	  // use VBO instead of Vertex Array
 	  state->useVBO = 1;
+	}
+    else if ( strcmp(argv[i], "-gles2")==0) {
+	  // use opengl es 2.0
+	  state->useGLES2 = 1;
 	}
     else {
 	  printf("\nunknown option: %s\n", argv[i]);
@@ -561,11 +583,12 @@ static void setup_user_options(int argc, char *argv[])
 
   if (printhelp) {
     printf("\nusage: RPIGears [options]\n");
-    printf("options: -vsync | -exit | -info | -vbo\n");
+    printf("options: -vsync | -exit | -info | -vbo | -gles2\n");
     printf("-vsync: wait for vertical sync before new frame is displayed\n");
     printf("-exit: automatically exit RPIGears after 30 seconds\n");
     printf("-info: display opengl driver info\n");
     printf("-vbo: use vertex buffer object in GPU memory\n");
+    printf("-gles2: use opengl es 2.0\n");
 
   }
   
@@ -661,7 +684,12 @@ static void run_gears()
     update_gear_rotation();
 
     // draw the scene for the next new frame
-    draw_scene();
+    if (state->useGLES2) {
+	  draw_sceneGL2();
+	}
+	else {
+      draw_sceneGL1();
+    }
     // swap the current buffer for the next new frame
     eglSwapBuffers(state->display, state->surface);
 
@@ -778,10 +806,10 @@ int main (int argc, char *argv[])
    // Clear application state
    memset( state, 0, sizeof( *state ) );
 
-   // Start OGLES 1.x
-   init_ogl();
-
    setup_user_options(argc, argv);
+
+   // Start OGLES
+   init_ogl();
 
    init_scene();
 
