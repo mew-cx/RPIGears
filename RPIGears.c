@@ -121,7 +121,7 @@ typedef struct
    GLfloat viewDist;
    GLfloat distance_inc;
 // number of seconds to run the demo
-   GLint timeToRun;
+   int timeToRun;
 
    gear_t *gear1, *gear2, *gear3;
 // current angle of the gear
@@ -135,19 +135,20 @@ typedef struct
    int useVBO;
    int useGLES2;
    int useVSync;
+   int wantInfo;
 
 } CUBE_STATE_T;
 
 static CUBE_STATE_T _state, *state=&_state;
 
 
-unsigned long getMilliseconds()
+int getMilliseconds()
 {
     struct timespec spec;
 
     clock_gettime(CLOCK_REALTIME, &spec);
 	
-	return spec.tv_sec * 1000 + spec.tv_nsec / 1000000;
+	return (spec.tv_sec * 1000L + spec.tv_nsec / 1000000L);
 }
 
 
@@ -283,6 +284,13 @@ static void init_ogl(void)
    // Enable back face culling.
    glEnable(GL_CULL_FACE);
 
+   if (state->wantInfo) {
+      printf("GL_RENDERER   = %s\n", (char *) glGetString(GL_RENDERER));
+      printf("GL_VERSION    = %s\n", (char *) glGetString(GL_VERSION));
+      printf("GL_VENDOR     = %s\n", (char *) glGetString(GL_VENDOR));
+      printf("GL_EXTENSIONS = %s\n", (char *) glGetString(GL_EXTENSIONS));
+	   
+   }
 }
 
 /**
@@ -553,14 +561,11 @@ static void setup_user_options(int argc, char *argv[])
 
   for ( i=1; i<argc; i++ ) {
     if (strcmp(argv[i], "-info")==0) {
-      printf("GL_RENDERER   = %s\n", (char *) glGetString(GL_RENDERER));
-      printf("GL_VERSION    = %s\n", (char *) glGetString(GL_VERSION));
-      printf("GL_VENDOR     = %s\n", (char *) glGetString(GL_VENDOR));
-      printf("GL_EXTENSIONS = %s\n", (char *) glGetString(GL_EXTENSIONS));
+	  state->wantInfo = 1;
     }
     else if ( strcmp(argv[i], "-exit")==0) {
-      state->timeToRun = 30;
-      printf("Auto Exit after %i seconds.\n", state->timeToRun );
+      state->timeToRun = 30000;
+      printf("Auto Exit after %i seconds.\n", state->timeToRun/1000 );
     }
     else if ( strcmp(argv[i], "-vsync")==0) {
       // want vertical sync
@@ -655,10 +660,10 @@ static void update_gear_rotation(void)
 
 static void run_gears()
 {
-  const GLint ttr = state->timeToRun;
-  const unsigned long st = getMilliseconds();
-  unsigned long ct = st;
-  unsigned long prevct = ct, seconds = st;
+  const int ttr = state->timeToRun;
+  const int st = getMilliseconds();
+  int ct = st;
+  int prevct = ct, seconds = st;
   float dt;
   float fps;
   int   frames = 0;
@@ -666,7 +671,7 @@ static void run_gears()
 
   // keep doing the loop while no key hit and ttr
   // is either 0 or time since start is less than time to run (ttr)
-  while ( active && ((ttr == 0) || (ct - st < ttr)) )
+  while ( active && ((ttr == 0) || ((ct - st) < ttr)) )
   {
     ct = getMilliseconds();
     
@@ -690,6 +695,7 @@ static void run_gears()
 	else {
       draw_sceneGL1();
     }
+    
     // swap the current buffer for the next new frame
     eglSwapBuffers(state->display, state->surface);
 
