@@ -24,7 +24,7 @@ exit the demo press any key on the keyboard.
 
 Command line Options
 --------------------
-usage: RPIGears [options]
+usage: ./RPIGears.bin [options]
 options: -vsync | -exit | -info | -vbo
 
 -vsync : wait for vertical sync before new frame is displayed
