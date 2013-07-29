@@ -254,16 +254,17 @@ static void multiply(GLfloat *m, const GLfloat *n)
  * Rotates a 4x4 matrix.
  * 
  * @param[in,out] m the matrix to rotate
- * @param angle the angle to rotate
+ * @param angle the angle to rotate in degrees
  * @param x the x component of the direction to rotate to
  * @param y the y component of the direction to rotate to
  * @param z the z component of the direction to rotate to
  */
 static void rotate(GLfloat *m, GLfloat angle, GLfloat x, GLfloat y, GLfloat z)
 {
-   double s, c;
-
-   sincos(angle, &s, &c);
+   float s, c;
+   
+   angle = 2.0f * M_PI * angle / 360.0f;
+   sincosf(angle, &s, &c);
    GLfloat r[16] = {
       x * x * (1 - c) + c,     y * x * (1 - c) + z * s, x * z * (1 - c) - y * s, 0,
       x * y * (1 - c) - z * s, y * y * (1 - c) + c,     y * z * (1 - c) + x * s, 0, 
@@ -363,11 +364,11 @@ void perspective(GLfloat *m, GLfloat fovy, GLfloat aspect, GLfloat zNear, GLfloa
    GLfloat tmp[16];
    identity(tmp);
 
-   double sine, cosine, cotangent, deltaZ;
+   float sine, cosine, cotangent, deltaZ;
    GLfloat radians = fovy / 2.0 * M_PI / 180.0;
 
    deltaZ = zFar - zNear;
-   sincos(radians, &sine, &cosine);
+   sincosf(radians, &sine, &cosine);
 
    if ((deltaZ == 0) || (sine == 0) || (aspect == 0))
       return;
@@ -718,7 +719,7 @@ static void draw_gearGLES2(gear_t *gear, GLfloat *transform,
    /* Translate and rotate the gear */
    memcpy(model_view, transform, sizeof (model_view));
    translate(model_view, x, y, 0);
-   rotate(model_view, 2.0 * M_PI * angle / 360.0, 0, 0, 1);
+   rotate(model_view, angle, 0, 0, 1);
 
    /* Create and set the ModelViewProjectionMatrix */
    memcpy(model_view_projection, state->ProjectionMatrix, sizeof(model_view_projection));
@@ -776,9 +777,9 @@ static void draw_sceneGLES2(void)
 
    /* Translate and rotate the view */
    translate(transform, 0.9, 0.0, -state->viewDist);
-   rotate(transform, 2 * M_PI * view_rotx / 360.0, 1, 0, 0);
-   rotate(transform, 2 * M_PI * view_roty / 360.0, 0, 1, 0);
-   rotate(transform, 2 * M_PI * view_rotz / 360.0, 0, 0, 1);
+   rotate(transform, view_rotx, 1, 0, 0);
+   rotate(transform, view_roty, 0, 1, 0);
+   rotate(transform, view_rotz, 0, 0, 1);
 
    /* Draw the gears */
    draw_gearGLES2(state->gear1, transform, -3.0, -2.0, state->angle);
