@@ -25,11 +25,12 @@ exit the demo press any key on the keyboard.
 Command line Options
 --------------------
 usage: ./RPIGears.bin [options]
-options: -vsync | -exit | -info | -vbo
+options: -vsync | -exit | -info | -vbo | -gles2
 
 -vsync : wait for vertical sync before new frame is displayed
--exit : automatically exit RPIGears after 30 seconds
--info : display opengl driver info
--vbo : use vertex buffer object in GPU memory
+-exit  : automatically exit RPIGears after 30 seconds
+-info  : display opengl driver info
+-vbo   : use vertex buffer object in GPU memory
+-gles2 : use opengl es 2.0 rendering path (programable shaders)
 
 Options can be used in any combination.
