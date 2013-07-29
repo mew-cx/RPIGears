@@ -175,6 +175,7 @@ static const char vertex_shader[] =
 "    // to get the actual color that we will use to draw this vertex with\n"
 "    float diffuse = max(dot(N, L), 0.0);\n"
 "    Color = diffuse * MaterialColor;\n"
+"    Color[3] = 1.0;\n"
 "\n"
 "    // Transform the position to clip coordinates\n"
 "    gl_Position = ModelViewProjectionMatrix * vec4(position, 1.0);\n"
@@ -363,7 +364,7 @@ void perspective(GLfloat *m, GLfloat fovy, GLfloat aspect, GLfloat zNear, GLfloa
    identity(tmp);
 
    double sine, cosine, cotangent, deltaZ;
-   GLfloat radians = fovy / 2 * M_PI / 180;
+   GLfloat radians = fovy / 2.0 * M_PI / 180.0;
 
    deltaZ = zFar - zNear;
    sincos(radians, &sine, &cosine);
@@ -717,7 +718,7 @@ static void draw_gearGLES2(gear_t *gear, GLfloat *transform,
    /* Translate and rotate the gear */
    memcpy(model_view, transform, sizeof (model_view));
    translate(model_view, x, y, 0);
-   rotate(model_view, 2 * M_PI * angle / 360.0, 0, 0, 1);
+   rotate(model_view, 2.0 * M_PI * angle / 360.0, 0, 0, 1);
 
    /* Create and set the ModelViewProjectionMatrix */
    memcpy(model_view_projection, state->ProjectionMatrix, sizeof(model_view_projection));
@@ -953,7 +954,7 @@ static void init_scene_GLES2(void)
 
 static void init_scene_GLES1()
 {
-  const GLfloat light_pos[4] = {5.0, 5.0, 10.0, 0.0};
+  const GLfloat light_pos[4] = {5.0, 5.0, 10.0, 1.0};
 
 
   glLightfv(GL_LIGHT0, GL_POSITION, light_pos);
