@@ -128,9 +128,10 @@ typedef struct
    
 // The location of the shader uniforms 
    GLuint ModelViewProjectionMatrix_location,
-              NormalMatrix_location,
-              LightSourcePosition_location,
-              MaterialColor_location;
+      ModelViewMatrix_location,
+      NormalMatrix_location,
+      LightSourcePosition_location,
+      MaterialColor_location;
 // The projection matrix
    GLfloat ProjectionMatrix[16];
    
@@ -156,39 +157,53 @@ static const char vertex_shader[] =
 "attribute vec3 position;\n"
 "attribute vec3 normal;\n"
 "\n"
+"uniform mat4 ModelViewMatrix;\n"
 "uniform mat4 ModelViewProjectionMatrix;\n"
 "uniform mat4 NormalMatrix;\n"
+"// light position in view space\n"
 "uniform vec4 LightSourcePosition;\n"
 "\n"
-"varying vec3 vertex_light_position;\n"
-"varying vec3 vertex_normal;\n"
+"varying vec3 L;\n"
+"varying vec3 N;\n"
+"varying vec3 H;\n"
 "\n"
 "void main(void)\n"
 "{\n"
-"// Calculate the normal value for this vertex, in world coordinates (\n"
+"    vec4 pos = vec4(position, 1.0);\n"
+"   // None of the vectors are normalized until in the fragment shader\n"
+"// Calculate the normal vector for this vertex, in view space (\n"
 "// multiply by NormalMatrix)\n"
-"    vertex_normal = normalize(vec3(NormalMatrix * vec4(normal, 1.0)));\n"
-"    // Calculate the light position for this vertex\n"
-"    vertex_light_position = normalize(LightSourcePosition.xyz);\n"
+"    N = vec3(NormalMatrix * vec4(normal, 1.0));\n"
+"    // Calculate the view vector\n"
+"    vec3 V = -vec3(ModelViewMatrix * pos);\n"
+"    // Calculate the light vector for this vertex\n"
+"    L = vec3(LightSourcePosition - (ModelViewMatrix * pos));\n"
+"// calculate half angle\n"
+"    H = L + V;\n"
 "\n"
 "    // Transform the position to clip coordinates\n"
-"    gl_Position = ModelViewProjectionMatrix * vec4(position, 1.0);\n"
+"    gl_Position = ModelViewProjectionMatrix * pos;\n"
 "}";
 
 // fragment shader for gles2
 static const char fragment_shader[] =
-"precision mediump float;\n"
 "\n"
 "uniform vec4 MaterialColor;\n"
 "\n"
-"varying vec4 Color;\n"
-"varying vec3 vertex_light_position;\n"
-"varying vec3 vertex_normal;\n"
+"varying vec3 L;\n"
+"varying vec3 N;\n"
+"varying vec3 H;\n"
 "\n"
 "void main(void)\n"
 "{\n"
-"    float diffuse_value = max(dot(vertex_normal, vertex_light_position), 0.0);\n"
-"    gl_FragColor = vec4(MaterialColor.xyz * diffuse_value, 1.0);\n"
+"    vec3 l = normalize(L);\n"
+"    vec3 n = normalize(N);\n"
+"    vec3 h = normalize(H);\n"
+"\n"
+"    float diffuse = max(dot(l, n), 0.0);\n"
+"    gl_FragColor = vec4(MaterialColor.xyz * diffuse, 1.0);\n"
+" //   add  specular\n"
+"    gl_FragColor += pow(max(0.0, dot(n, h)), 7.0);\n"
 "}";
 
 uint getMilliseconds()
@@ -727,6 +742,8 @@ static void draw_gearGLES2(gear_t *gear, GLfloat *transform,
 
    glUniformMatrix4fv(state->ModelViewProjectionMatrix_location, 1, GL_FALSE,
                       model_view_projection);
+   glUniformMatrix4fv(state->ModelViewMatrix_location, 1, GL_FALSE,
+                      model_view);
 
    /* 
     * Create and set the NormalMatrix. It's the inverse transpose of the
@@ -944,6 +961,7 @@ static void init_scene_GLES2(void)
 
    /* Get the locations of the uniforms so we can access them */
    state->ModelViewProjectionMatrix_location = glGetUniformLocation(program, "ModelViewProjectionMatrix");
+   state->ModelViewMatrix_location = glGetUniformLocation(program, "ModelViewMatrix");
    state->NormalMatrix_location = glGetUniformLocation(program, "NormalMatrix");
    state->LightSourcePosition_location = glGetUniformLocation(program, "LightSourcePosition");
    state->MaterialColor_location = glGetUniformLocation(program, "MaterialColor");
