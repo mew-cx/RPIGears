@@ -313,7 +313,7 @@ static void translate(GLfloat *m, GLfloat x, GLfloat y, GLfloat z)
  */
 static void identity(GLfloat *m)
 {
-   GLfloat t[16] = {
+   static const GLfloat t[16] = {
       1.0, 0.0, 0.0, 0.0,
       0.0, 1.0, 0.0, 0.0,
       0.0, 0.0, 1.0, 0.0,
@@ -330,7 +330,7 @@ static void identity(GLfloat *m)
  */
 static void transpose(GLfloat *m)
 {
-   GLfloat t[16] = {
+   const GLfloat t[16] = {
       m[0], m[4], m[8],  m[12],
       m[1], m[5], m[9],  m[13],
       m[2], m[6], m[10], m[14],
@@ -984,6 +984,10 @@ static void init_scene_GLES1()
 
   glShadeModel(GL_SMOOTH);
 
+  // vertex and normal array will always be used so do it here once  
+  glEnableClientState(GL_NORMAL_ARRAY);
+  glEnableClientState(GL_VERTEX_ARRAY);
+
 }
 
 static void build_gears()
@@ -1004,9 +1008,6 @@ static void build_gears()
     make_gear_vbo(state->gear3);
   }
 
-  // vertex and normal array will always be used so do it here once  
-  glEnableClientState(GL_NORMAL_ARRAY);
-  glEnableClientState(GL_VERTEX_ARRAY);
   
 }
 
@@ -1081,6 +1082,7 @@ static void init_model_projGLES2(void)
 {
    /* Update the projection matrix */
    perspective(state->ProjectionMatrix, 45.0, (float)state->screen_width / (float)state->screen_height, 1.0, 50.0);
+   glViewport(0, 0, (GLsizei)state->screen_width, (GLsizei)state->screen_height);
 	
 }
 
@@ -1144,8 +1146,10 @@ static void free_gear(gear_t *gear)
 static void exit_func(void)
 // Function to be passed to atexit().
 {
-   glDisableClientState(GL_NORMAL_ARRAY);
-   glDisableClientState(GL_VERTEX_ARRAY);
+   if (!state->useGLES2) {
+     glDisableClientState(GL_NORMAL_ARRAY);
+     glDisableClientState(GL_VERTEX_ARRAY);
+   }
 
    glBindBuffer(GL_ARRAY_BUFFER, 0);
    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
