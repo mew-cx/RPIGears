@@ -67,6 +67,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#define _GNU_SOURCE
 #include <math.h>
 #include <assert.h>
 #include <unistd.h>
@@ -150,7 +151,7 @@ typedef struct
 
 } CUBE_STATE_T;
 
-static CUBE_STATE_T _state, *state=&_state;
+static CUBE_STATE_T _state, *state = &_state;
 
 // vertex shader for gles2
 static const char vertex_shader[] =
@@ -163,9 +164,9 @@ static const char vertex_shader[] =
 "// light position in view space\n"
 "uniform vec4 LightSourcePosition;\n"
 "\n"
-"varying vec3 L;\n"
-"varying vec3 N;\n"
-"varying vec3 H;\n"
+"varying lowp vec3 L;\n"
+"varying lowp vec3 N;\n"
+"varying lowp vec3 H;\n"
 "\n"
 "void main(void)\n"
 "{\n"
@@ -173,7 +174,7 @@ static const char vertex_shader[] =
 "   // None of the vectors are normalized until in the fragment shader\n"
 "// Calculate the normal vector for this vertex, in view space (\n"
 "// multiply by NormalMatrix)\n"
-"    N = vec3(NormalMatrix * vec4(normal, 1.0));\n"
+"    N = vec3(NormalMatrix * vec4(normal, 0.0));\n"
 "    // Calculate the light vector for this vertex\n"
 "    L = vec3(LightSourcePosition - (ModelViewMatrix * pos));\n"
 "    // Calculate the view vector\n"
@@ -190,17 +191,17 @@ static const char fragment_shader[] =
 "\n"
 "uniform vec4 MaterialColor;\n"
 "\n"
-"varying vec3 L;\n"
-"varying vec3 N;\n"
-"varying vec3 H;\n"
+"varying lowp vec3 L;\n"
+"varying lowp vec3 N;\n"
+"varying lowp vec3 H;\n"
 "\n"
 "void main(void)\n"
 "{\n"
-"    vec3 l = normalize(L);\n"
-"    vec3 n = normalize(N);\n"
-"    vec3 h = normalize(H);\n"
+"    lowp vec3 l = normalize(L);\n"
+"    lowp vec3 n = normalize(N);\n"
+"    lowp vec3 h = normalize(H);\n"    
 "\n"
-"    float diffuse = max(dot(l, n), 0.0);\n"
+"    lowp float diffuse = max(dot(l, n), 0.0);\n"
 "    gl_FragColor = vec4(MaterialColor.xyz * diffuse, 1.0);\n"
 " //   add  specular\n"
 "    gl_FragColor += pow(max(0.0, dot(n, h)), 7.0);\n"
@@ -247,7 +248,7 @@ int _kbhit(void) {
  * @param m the first matrix to multiply
  * @param n the second matrix to multiply
  */
-static void multiply(GLfloat *m, const GLfloat *n)
+static void m4x4_multiply(GLfloat *m, const GLfloat *n)
 {
    GLfloat tmp[16];
    const GLfloat *row, *column;
@@ -274,12 +275,14 @@ static void multiply(GLfloat *m, const GLfloat *n)
  * @param y the y component of the direction to rotate to
  * @param z the z component of the direction to rotate to
  */
-static void rotate(GLfloat *m, GLfloat angle, GLfloat x, GLfloat y, GLfloat z)
+static void m4x4_rotate(GLfloat *m, GLfloat angle, GLfloat x, GLfloat y, GLfloat z)
 {
    float s, c;
    
    angle = 2.0f * M_PI * angle / 360.0f;
-   sincosf(angle, &s, &c);
+   s = sinf(angle);
+   c = cosf(angle);
+
    GLfloat r[16] = {
       x * x * (1 - c) + c,     y * x * (1 - c) + z * s, x * z * (1 - c) - y * s, 0,
       x * y * (1 - c) - z * s, y * y * (1 - c) + c,     y * z * (1 - c) + x * s, 0, 
@@ -287,7 +290,7 @@ static void rotate(GLfloat *m, GLfloat angle, GLfloat x, GLfloat y, GLfloat z)
       0, 0, 0, 1
    };
 
-   multiply(m, r);
+   m4x4_multiply(m, r);
 }
 
 
@@ -299,11 +302,11 @@ static void rotate(GLfloat *m, GLfloat angle, GLfloat x, GLfloat y, GLfloat z)
  * @param y the y component of the direction to translate to
  * @param z the z component of the direction to translate to
  */
-static void translate(GLfloat *m, GLfloat x, GLfloat y, GLfloat z)
+static void m4x4_translate(GLfloat *m, GLfloat x, GLfloat y, GLfloat z)
 {
    GLfloat t[16] = { 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  x, y, z, 1 };
 
-   multiply(m, t);
+   m4x4_multiply(m, t);
 }
 
 /** 
@@ -311,7 +314,7 @@ static void translate(GLfloat *m, GLfloat x, GLfloat y, GLfloat z)
  * 
  * @param m the matrix make an identity matrix
  */
-static void identity(GLfloat *m)
+static void m4x4_identity(GLfloat *m)
 {
    static const GLfloat t[16] = {
       1.0, 0.0, 0.0, 0.0,
@@ -328,7 +331,7 @@ static void identity(GLfloat *m)
  *
  * @param m the matrix to transpose
  */
-static void transpose(GLfloat *m)
+static void m4x4_transpose(GLfloat *m)
 {
    const GLfloat t[16] = {
       m[0], m[4], m[8],  m[12],
@@ -346,10 +349,10 @@ static void transpose(GLfloat *m)
  * Read http://www.gamedev.net/community/forums/topic.asp?topic_id=425118
  * for an explanation.
  */
-static void invert(GLfloat *m)
+static void m4x4_invert(GLfloat *m)
 {
    GLfloat t[16];
-   identity(t);
+   m4x4_identity(t);
 
    // Extract and invert the translation part 't'. The inverse of a
    // translation matrix can be calculated by negating the translation
@@ -359,10 +362,10 @@ static void invert(GLfloat *m)
    // Invert the rotation part 'r'. The inverse of a rotation matrix is
    // equal to its transpose.
    m[12] = m[13] = m[14] = 0;
-   transpose(m);
+   m4x4_transpose(m);
 
    // inv(m) = inv(r) * inv(t)
-   multiply(m, t);
+   m4x4_multiply(m, t);
 }
 
 /** 
@@ -374,16 +377,17 @@ static void invert(GLfloat *m)
  * @param zNear the near clipping plane
  * @param zFar the far clipping plane
  */
-void perspective(GLfloat *m, GLfloat fovy, GLfloat aspect, GLfloat zNear, GLfloat zFar)
+void m4x4_perspective(GLfloat *m, GLfloat fovy, GLfloat aspect, GLfloat zNear, GLfloat zFar)
 {
    GLfloat tmp[16];
-   identity(tmp);
+   m4x4_identity(tmp);
 
    float sine, cosine, cotangent, deltaZ;
    GLfloat radians = fovy / 2.0 * M_PI / 180.0;
 
    deltaZ = zFar - zNear;
-   sincosf(radians, &sine, &cosine);
+   sine = sinf(radians);
+   cosine = cosf(radians);
 
    if ((deltaZ == 0) || (sine == 0) || (aspect == 0))
       return;
@@ -733,12 +737,12 @@ static void draw_gearGLES2(gear_t *gear, GLfloat *transform,
 
    /* Translate and rotate the gear */
    memcpy(model_view, transform, sizeof (model_view));
-   translate(model_view, x, y, 0);
-   rotate(model_view, angle, 0, 0, 1);
+   m4x4_translate(model_view, x, y, 0);
+   m4x4_rotate(model_view, angle, 0, 0, 1);
 
    /* Create and set the ModelViewProjectionMatrix */
    memcpy(model_view_projection, state->ProjectionMatrix, sizeof(model_view_projection));
-   multiply(model_view_projection, model_view);
+   m4x4_multiply(model_view_projection, model_view);
 
    glUniformMatrix4fv(state->ModelViewProjectionMatrix_location, 1, GL_FALSE,
                       model_view_projection);
@@ -750,8 +754,8 @@ static void draw_gearGLES2(gear_t *gear, GLfloat *transform,
     * ModelView matrix.
     */
    memcpy(normal_matrix, model_view, sizeof (normal_matrix));
-   invert(normal_matrix);
-   transpose(normal_matrix);
+   m4x4_invert(normal_matrix);
+   m4x4_transpose(normal_matrix);
    glUniformMatrix4fv(state->NormalMatrix_location, 1, GL_FALSE, normal_matrix);
 
    /* Set the gear color */
@@ -788,15 +792,15 @@ static void draw_gearGLES2(gear_t *gear, GLfloat *transform,
 static void draw_sceneGLES2(void)
 {
    GLfloat transform[16];
-   identity(transform);
+   m4x4_identity(transform);
 
    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
    /* Translate and rotate the view */
-   translate(transform, 0.9, 0.0, -state->viewDist);
-   rotate(transform, view_rotx, 1, 0, 0);
-   rotate(transform, view_roty, 0, 1, 0);
-   rotate(transform, view_rotz, 0, 0, 1);
+   m4x4_translate(transform, 0.9, 0.0, -state->viewDist);
+   m4x4_rotate(transform, view_rotx, 1, 0, 0);
+   m4x4_rotate(transform, view_roty, 0, 1, 0);
+   m4x4_rotate(transform, view_rotz, 0, 0, 1);
 
    /* Draw the gears */
    draw_gearGLES2(state->gear1, transform, -3.0, -2.0, state->angle);
@@ -1081,7 +1085,7 @@ static void run_gears()
 static void init_model_projGLES2(void)
 {
    /* Update the projection matrix */
-   perspective(state->ProjectionMatrix, 45.0, (float)state->screen_width / (float)state->screen_height, 1.0, 50.0);
+   m4x4_perspective(state->ProjectionMatrix, 45.0, (float)state->screen_width / (float)state->screen_height, 1.0, 50.0);
    glViewport(0, 0, (GLsizei)state->screen_width, (GLsizei)state->screen_height);
 	
 }
