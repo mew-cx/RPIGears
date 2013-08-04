@@ -94,6 +94,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 typedef struct {
   GLfloat pos[3];
   GLfloat norm[3];
+  GLfloat texCoords[2];
 } vertex_t;
 
 typedef struct {
@@ -108,6 +109,7 @@ typedef struct {
   GLvoid *vertex_p; // offset or pointer to first vertex
   GLvoid *normal_p; // offset or pointer to first normal
   GLvoid *index_p;  // offset or pointer to first index
+  GLvoid *texCoords_p;  // offset or pointer to first texcoord
 } gear_t;
 
 
@@ -119,11 +121,13 @@ typedef struct
    EGLDisplay display;
    EGLSurface surface;
    EGLContext context;
+   GLenum drawMode;
 // current distance from camera
    GLfloat viewDist;
    GLfloat distance_inc;
 // number of seconds to run the demo
    uint timeToRun;
+   GLuint texId;
 
    gear_t *gear1, *gear2, *gear3;
    
@@ -153,6 +157,8 @@ typedef struct
 
 static CUBE_STATE_T _state, *state = &_state;
 
+#include "RPi_Logo256.c"
+
 // vertex shader for gles2
 static const char vertex_shader[] =
 "attribute vec3 position;\n"
@@ -178,7 +184,7 @@ static const char vertex_shader[] =
 "    // Calculate the light vector for this vertex\n"
 "    L = vec3(LightSourcePosition - (ModelViewMatrix * pos));\n"
 "    // Calculate the view vector\n"
-"    vec3 V = vec3(ModelViewMatrix * pos);\n"
+"    lowp vec3 V = vec3(ModelViewMatrix * pos);\n"
 "// calculate half angle\n"
 "    H = L - V;\n"
 "\n"
@@ -547,7 +553,7 @@ static gear_t* gear( const GLfloat inner_radius, const GLfloat outer_radius,
   GLfloat cos_ta, cos_ta_1da, cos_ta_2da, cos_ta_3da, cos_ta_4da;
   GLfloat sin_ta, sin_ta_1da, sin_ta_2da, sin_ta_3da, sin_ta_4da;
   GLshort ix0, ix1, ix2, ix3, ix4, ix5;
-  vertex_t *vt, *nm;
+  vertex_t *vt, *nm, *tx;
   GLshort *ix;
 
   gear_t *gear = calloc(1, sizeof(gear_t));
@@ -564,12 +570,15 @@ static gear_t* gear( const GLfloat inner_radius, const GLfloat outer_radius,
 
   vt = gear->vertices;
   nm = gear->vertices;
+  tx = gear->vertices;
   ix = gear->indices;
 
 #define VERTEX(x,y,z) ((vt->pos[0] = x),(vt->pos[1] = y),(vt->pos[2] = z), \
                        (vt++ - gear->vertices))
 #define NORMAL(x,y,z) ((nm->norm[0] = x),(nm->norm[1] = y),(nm->norm[2] = z), \
                        (nm++))
+#define TEXCOORD(x,y) ((tx->texCoords[0] = x),(tx->texCoords[1] = y), \
+                       (tx++))
 #define INDEX(a,b,c) ((*ix++ = a),(*ix++ = b),(*ix++ = c))
 
   for (i = 0; i < teeth; i++) {
@@ -608,6 +617,12 @@ static gear_t* gear( const GLfloat inner_radius, const GLfloat outer_radius,
     INDEX(ix1, ix3, ix2);
     INDEX(ix2, ix3, ix4);
     INDEX(ix3, ix5, ix4);
+    TEXCOORD(u1, v1);
+    TEXCOORD(0.0, 0.0);
+    TEXCOORD(0.0, 0.0);
+    TEXCOORD(0.0, 0.0);
+    TEXCOORD(0.0, 0.0);
+    TEXCOORD(0.0, 0.0);
 
     /* front sides of teeth */
     ix0 = VERTEX(r1 * cos_ta,          r1 * sin_ta,          width * 0.5);
@@ -701,12 +716,14 @@ static gear_t* gear( const GLfloat inner_radius, const GLfloat outer_radius,
 	// for VBO use offsets into the buffer object
     gear->vertex_p = 0;
     gear->normal_p = (GLvoid *)sizeof(gear->vertices[0].pos);
+    gear->texCoords_p = (GLvoid *)(sizeof(gear->vertices[0].pos) + sizeof(gear->vertices[0].norm));
     gear->index_p = 0;
   }
   else {
 	// for Vertex Array use pointers to where the buffer starts
     gear->vertex_p = gear->vertices[0].pos;
     gear->normal_p = gear->vertices[0].norm;
+    gear->texCoords_p = gear->vertices[0].texCoords;
     gear->index_p = gear->indices;
   }
   
@@ -731,6 +748,9 @@ static GLfloat view_rotx = 25.0, view_roty = 30.0, view_rotz = 0.0;
 static void draw_gearGLES2(gear_t *gear, GLfloat *transform,
       GLfloat x, GLfloat y, GLfloat angle)
 {
+   // The direction of the directional light for the scene */
+   static const GLfloat LightSourcePosition[4] = { 5.0, 5.0, 10.0, 1.0};
+
    GLfloat model_view[16];
    GLfloat normal_matrix[16];
    GLfloat model_view_projection[16];
@@ -748,6 +768,8 @@ static void draw_gearGLES2(gear_t *gear, GLfloat *transform,
                       model_view_projection);
    glUniformMatrix4fv(state->ModelViewMatrix_location, 1, GL_FALSE,
                       model_view);
+   /* Set the LightSourcePosition uniform in relation to the object */
+   glUniform4fv(state->LightSourcePosition_location, 1, LightSourcePosition);
 
    /* 
     * Create and set the NormalMatrix. It's the inverse transpose of the
@@ -778,12 +800,27 @@ static void draw_gearGLES2(gear_t *gear, GLfloat *transform,
    glEnableVertexAttribArray(0);
    glEnableVertexAttribArray(1);
     
-   glDrawElements(GL_TRIANGLES, gear->tricount, GL_UNSIGNED_SHORT,
+   glDrawElements(state->drawMode, gear->tricount, GL_UNSIGNED_SHORT,
                    gear->index_p);
 
    /* Disable the attributes */
    glDisableVertexAttribArray(1);
    glDisableVertexAttribArray(0);
+ 
+}
+
+static void init_textures(void)
+{
+   // load a texture buffer but use them on six OGL|ES texture surfaces
+   glGenTextures(1, &state->texId);
+
+   // setup texture
+   glBindTexture(GL_TEXTURE_2D, state->texId);
+   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, rpi_image.width, rpi_image.height, 0,
+                GL_RGBA, GL_UNSIGNED_BYTE, rpi_image.pixel_data);
+   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLfloat)GL_NEAREST);
+   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLfloat)GL_NEAREST);
+   
 }
 
 /** 
@@ -824,8 +861,12 @@ void draw_gearGLES1(gear_t* gear, GLfloat x, GLfloat y, GLfloat angle)
   
   glNormalPointer(GL_FLOAT, sizeof(vertex_t), gear->normal_p);
   glVertexPointer(3, GL_FLOAT, sizeof(vertex_t), gear->vertex_p);
+  glTexCoordPointer(2, GL_FLOAT, sizeof(vertex_t), gear->texCoords_p);
+
+  // Bind texture surface to current vertices
+  //glBindTexture(GL_TEXTURE_2D, state->texId);
     
-  glDrawElements(GL_TRIANGLES, gear->tricount, GL_UNSIGNED_SHORT,
+  glDrawElements(state->drawMode, gear->tricount, GL_UNSIGNED_SHORT,
                    gear->index_p);
   glPopMatrix();
   
@@ -864,6 +905,7 @@ static void setup_user_options(int argc, char *argv[])
   state->avgfps = 300;
   state->angleVel = 70;
   state->useVBO = 0;
+  state->drawMode = GL_TRIANGLES;
 
   for ( i=1; i<argc; i++ ) {
     if (strcmp(argv[i], "-info")==0) {
@@ -886,6 +928,14 @@ static void setup_user_options(int argc, char *argv[])
 	  // use opengl es 2.0
 	  state->useGLES2 = 1;
 	}
+    else if ( strcmp(argv[i], "-line")==0) {
+	  // use line mode draw ie wire mesh
+	  state->drawMode = GL_LINES;
+	}
+    else if ( strcmp(argv[i], "-nospin")==0) {
+	  // gears don't spin
+	  state->angleVel = 0.0f;
+	}
     else {
 	  printf("\nunknown option: %s\n", argv[i]);
       printhelp = 1;
@@ -894,12 +944,14 @@ static void setup_user_options(int argc, char *argv[])
 
   if (printhelp) {
     printf("\nusage: RPIGears [options]\n");
-    printf("options: -vsync | -exit | -info | -vbo | -gles2\n");
+    printf("options: -vsync | -exit | -info | -vbo | -gles2 | -line | -nospin\n");
     printf("-vsync: wait for vertical sync before new frame is displayed\n");
     printf("-exit: automatically exit RPIGears after 30 seconds\n");
     printf("-info: display opengl driver info\n");
     printf("-vbo: use vertex buffer object in GPU memory\n");
     printf("-gles2: use opengl es 2.0\n");
+    printf("-line: draw lines only, wire frame mode\n");
+    printf("-nospin: gears don't turn\n");
 
   }
   
@@ -927,8 +979,6 @@ static void init_scene_GLES2(void)
    const char *p;
    char msg[512];
 
-   // The direction of the directional light for the scene */
-   const GLfloat LightSourcePosition[4] = { 5.0, 5.0, 10.0, 1.0};
 
    glEnable(GL_CULL_FACE);
    glEnable(GL_DEPTH_TEST);
@@ -970,9 +1020,6 @@ static void init_scene_GLES2(void)
    state->LightSourcePosition_location = glGetUniformLocation(program, "LightSourcePosition");
    state->MaterialColor_location = glGetUniformLocation(program, "MaterialColor");
 
-   /* Set the LightSourcePosition uniform which is constant throught the program */
-   glUniform4fv(state->LightSourcePosition_location, 1, LightSourcePosition);
-
 }
 
 static void init_scene_GLES1()
@@ -991,6 +1038,14 @@ static void init_scene_GLES1()
   // vertex and normal array will always be used so do it here once  
   glEnableClientState(GL_NORMAL_ARRAY);
   glEnableClientState(GL_VERTEX_ARRAY);
+
+  // setup overall texture environment
+  glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+   
+  //glEnable(GL_TEXTURE_2D);
+  // setup decal blend mode for current bound texture unit
+  //glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
+
 
 }
 
@@ -1190,7 +1245,7 @@ int main (int argc, char *argv[])
 
    // Start OGLES
    init_egl();
-
+   init_textures();
    build_gears();
    
    // setup the scene based on rendering mode
