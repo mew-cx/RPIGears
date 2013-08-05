@@ -514,10 +514,11 @@ static void init_egl(void)
    assert(EGL_FALSE != result);
 
    // Set background color and clear buffers
-   glClearColor(0.15f, 0.25f, 0.35f, 1.0f);
+   glClearColor(0.25f, 0.45f, 0.55f, 1.0f);
 
    // Enable back face culling.
    glEnable(GL_CULL_FACE);
+   glFrontFace(GL_CCW);
 
    if (state->wantInfo) {
       printf("GL_RENDERER   = %s\n", (char *) glGetString(GL_RENDERER));
@@ -574,11 +575,10 @@ static gear_t* gear( const GLfloat inner_radius, const GLfloat outer_radius,
   ix = gear->indices;
 
 #define VERTEX(x,y,z) ((vt->pos[0] = x),(vt->pos[1] = y),(vt->pos[2] = z), \
-                       (vt++ - gear->vertices))
+    (tx->texCoords[0] = x / r2 * 0.8 + 0.5),(tx->texCoords[1] = y / r2 * 0.8 + 0.5), (tx++), \
+    (vt++ - gear->vertices))
 #define NORMAL(x,y,z) ((nm->norm[0] = x),(nm->norm[1] = y),(nm->norm[2] = z), \
                        (nm++))
-#define TEXCOORD(x,y) ((tx->texCoords[0] = x),(tx->texCoords[1] = y), \
-                       (tx++))
 #define INDEX(a,b,c) ((*ix++ = a),(*ix++ = b),(*ix++ = c))
 
   for (i = 0; i < teeth; i++) {
@@ -615,11 +615,6 @@ static gear_t* gear( const GLfloat inner_radius, const GLfloat outer_radius,
     INDEX(ix0, ix2, ix1);
     INDEX(ix1, ix2, ix3);
     INDEX(ix2, ix4, ix3);
-    TEXCOORD(u1, v1);
-    TEXCOORD(0.0, 0.0);
-    TEXCOORD(0.0, 0.0);
-    TEXCOORD(0.0, 0.0);
-    TEXCOORD(0.0, 0.0);
 
     /* front sides of teeth */
     ix0 = VERTEX(r1 * cos_ta,          r1 * sin_ta,          width * 0.5);
@@ -812,10 +807,12 @@ static void init_textures(void)
 
    // setup texture
    glBindTexture(GL_TEXTURE_2D, state->texId);
-   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, rpi_image.width, rpi_image.height, 0,
-                GL_RGBA, GL_UNSIGNED_BYTE, rpi_image.pixel_data);
-   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLfloat)GL_NEAREST);
-   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLfloat)GL_NEAREST);
+   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, rpi_image.width, rpi_image.height, 0,
+                GL_RGB, GL_UNSIGNED_BYTE, rpi_image.pixel_data);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
    
 }
 
@@ -860,7 +857,7 @@ void draw_gearGLES1(gear_t* gear, GLfloat x, GLfloat y, GLfloat angle)
   glTexCoordPointer(2, GL_FLOAT, sizeof(vertex_t), gear->texCoords_p);
 
   // Bind texture surface to current vertices
-  //glBindTexture(GL_TEXTURE_2D, state->texId);
+  glBindTexture(GL_TEXTURE_2D, state->texId);
     
   glDrawElements(state->drawMode, gear->tricount, GL_UNSIGNED_SHORT,
                    gear->index_p);
@@ -1038,18 +1035,18 @@ static void init_scene_GLES1()
   // setup overall texture environment
   glEnableClientState(GL_TEXTURE_COORD_ARRAY);
    
-  //glEnable(GL_TEXTURE_2D);
-  // setup decal blend mode for current bound texture unit
-  //glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
+  glEnable(GL_TEXTURE_2D);
+  // setup blend mode for current bound texture unit
+  glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 
 
 }
 
 static void build_gears()
 {
-  const GLfloat red[4] = {0.8, 0.1, 0.0, 1.0};
-  const GLfloat green[4] = {0.0, 0.8, 0.2, 1.0};
-  const GLfloat blue[4] = {0.2, 0.2, 1.0, 1.0};
+  const GLfloat red[4] = {0.9, 0.3, 0.3, 1.0};
+  const GLfloat green[4] = {0.3, 0.9, 0.3, 1.0};
+  const GLfloat blue[4] = {0.3, 0.3, 0.9, 1.0};
 
   /* make the meshes for the gears */
   state->gear1 = gear(1.0, 4.0, 2.5, 20, 0.7, red);
