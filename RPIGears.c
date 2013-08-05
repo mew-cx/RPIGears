@@ -552,13 +552,13 @@ static gear_t* gear( const GLfloat inner_radius, const GLfloat outer_radius,
   GLfloat u1, v1, u2, v2, len;
   GLfloat cos_ta, cos_ta_1da, cos_ta_2da, cos_ta_3da, cos_ta_4da;
   GLfloat sin_ta, sin_ta_1da, sin_ta_2da, sin_ta_3da, sin_ta_4da;
-  GLshort ix0, ix1, ix2, ix3, ix4, ix5;
+  GLshort ix0, ix1, ix2, ix3, ix4;
   vertex_t *vt, *nm, *tx;
   GLshort *ix;
 
   gear_t *gear = calloc(1, sizeof(gear_t));
-  gear->nvertices = teeth * 40;
-  gear->nindices = teeth * 66 * 3;
+  gear->nvertices = teeth * 38;
+  gear->nindices = teeth * 64 * 3;
   gear->vertices = calloc(gear->nvertices, sizeof(vertex_t));
   gear->indices = calloc(gear->nindices, sizeof(GLshort));
   memcpy(&gear->color[0], &color[0], sizeof(GLfloat) * 4);
@@ -604,21 +604,18 @@ static gear_t* gear( const GLfloat inner_radius, const GLfloat outer_radius,
     v2 = r1 * sin_ta_3da - r2 * sin_ta_2da;
 
     /* front face */
-    ix0 = VERTEX(r0 * cos_ta,          r0 * sin_ta,          width * 0.5);
-    ix1 = VERTEX(r1 * cos_ta,          r1 * sin_ta,          width * 0.5);
-    ix2 = VERTEX(r0 * cos_ta,          r0 * sin_ta,          width * 0.5);
-    ix3 = VERTEX(r1 * cos_ta_3da,      r1 * sin_ta_3da,      width * 0.5);
-    ix4 = VERTEX(r0 * cos_ta_4da,      r0 * sin_ta_4da,      width * 0.5);
-    ix5 = VERTEX(r1 * cos_ta_4da,      r1 * sin_ta_4da,      width * 0.5);
-    for (j = 0; j < 6; j++) {
+    ix0 = VERTEX(r1 * cos_ta,          r1 * sin_ta,          width * 0.5);
+    ix1 = VERTEX(r0 * cos_ta,          r0 * sin_ta,          width * 0.5);
+    ix2 = VERTEX(r1 * cos_ta_3da,      r1 * sin_ta_3da,      width * 0.5);
+    ix3 = VERTEX(r0 * cos_ta_4da,      r0 * sin_ta_4da,      width * 0.5);
+    ix4 = VERTEX(r1 * cos_ta_4da,      r1 * sin_ta_4da,      width * 0.5);
+    for (j = 0; j < 5; j++) {
       NORMAL(0.0,                  0.0,                  1.0);
     }
-    INDEX(ix0, ix1, ix2);
-    INDEX(ix1, ix3, ix2);
-    INDEX(ix2, ix3, ix4);
-    INDEX(ix3, ix5, ix4);
+    INDEX(ix0, ix2, ix1);
+    INDEX(ix1, ix2, ix3);
+    INDEX(ix2, ix4, ix3);
     TEXCOORD(u1, v1);
-    TEXCOORD(0.0, 0.0);
     TEXCOORD(0.0, 0.0);
     TEXCOORD(0.0, 0.0);
     TEXCOORD(0.0, 0.0);
@@ -636,18 +633,17 @@ static gear_t* gear( const GLfloat inner_radius, const GLfloat outer_radius,
     INDEX(ix1, ix3, ix2);
     /* back face */
     ix0 = VERTEX(r1 * cos_ta,          r1 * sin_ta,          -width * 0.5);
-    ix1 = VERTEX(r0 * cos_ta,          r0 * sin_ta,          -width * 0.5);
-    ix2 = VERTEX(r1 * cos_ta_3da,      r1 * sin_ta_3da,      -width * 0.5);
-    ix3 = VERTEX(r0 * cos_ta,          r0 * sin_ta,          -width * 0.5);
-    ix4 = VERTEX(r1 * cos_ta_4da,      r1 * sin_ta_4da,      -width * 0.5);
-    ix5 = VERTEX(r0 * cos_ta_4da,      r0 * sin_ta_4da,      -width * 0.5);
-    for (j = 0; j < 6; j++) {
+    ix1 = VERTEX(r1 * cos_ta_3da,      r1 * sin_ta_3da,      -width * 0.5);
+    ix2 = VERTEX(r0 * cos_ta,          r0 * sin_ta,          -width * 0.5);
+    ix3 = VERTEX(r1 * cos_ta_4da,      r1 * sin_ta_4da,      -width * 0.5);
+    ix4 = VERTEX(r0 * cos_ta_4da,      r0 * sin_ta_4da,      -width * 0.5);
+    for (j = 0; j < 5; j++) {
       NORMAL(0.0,                  0.0,                  -1.0);
     }
-    INDEX(ix0, ix1, ix2);
-    INDEX(ix1, ix3, ix2);
-    INDEX(ix2, ix3, ix4);
-    INDEX(ix3, ix5, ix4);
+    INDEX(ix0, ix2, ix1);
+    INDEX(ix1, ix2, ix3);
+    INDEX(ix2, ix4, ix3);
+    
  /* back sides of teeth */
     ix0 = VERTEX(r1 * cos_ta_3da,      r1 * sin_ta_3da,      -width * 0.5);
     ix1 = VERTEX(r2 * cos_ta_2da,      r2 * sin_ta_2da,      -width * 0.5);
