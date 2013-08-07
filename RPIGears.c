@@ -253,6 +253,18 @@ int _kbhit(void) {
 }
 
 /** 
+ * Copies a 4x4 matrix.
+ * 
+ * 
+ * @param md the destination matrix
+ * @param ms the matrix to copy
+ */
+static void m4x4_copy(GLfloat *md, const GLfloat *ms)
+{
+   memcpy(md, ms, sizeof(GLfloat) * 16);
+}
+
+/** 
  * Multiplies two 4x4 matrices.
  * 
  * The result is stored in matrix m.
@@ -275,7 +287,7 @@ static void m4x4_multiply(GLfloat *m, const GLfloat *n)
       for (j = 0; j < 4; j++)
          tmp[i] += row[j] * column[j * 4];
    }
-   memcpy(m, &tmp, sizeof tmp);
+   m4x4_copy(m, tmp);
 }
 
 /** 
@@ -335,7 +347,7 @@ static void m4x4_identity(GLfloat *m)
       0.0, 0.0, 0.0, 1.0,
    };
 
-   memcpy(m, t, sizeof(t));
+   m4x4_copy(m, t);
 }
 
 /** 
@@ -351,7 +363,7 @@ static void m4x4_transpose(GLfloat *m)
       m[2], m[6], m[10], m[14],
       m[3], m[7], m[11], m[15]};
 
-   memcpy(m, t, sizeof(t));
+   m4x4_copy(m, t);
 }
 
 /**
@@ -413,7 +425,7 @@ void m4x4_perspective(GLfloat *m, GLfloat fovy, GLfloat aspect, GLfloat zNear, G
    tmp[14] = -2 * zNear * zFar / deltaZ;
    tmp[15] = 0;
 
-   memcpy(m, tmp, sizeof(tmp));
+   m4x4_copy(m, tmp);
 }
 
 /***********************************************************
@@ -753,12 +765,12 @@ static void draw_gearGLES2(gear_t *gear, GLfloat *transform,
    GLfloat model_view_projection[16];
 
    /* Translate and rotate the gear */
-   memcpy(model_view, transform, sizeof (model_view));
+   m4x4_copy(model_view, transform);
    m4x4_translate(model_view, x, y, 0);
    m4x4_rotate(model_view, angle, 0, 0, 1);
 
    /* Create and set the ModelViewProjectionMatrix */
-   memcpy(model_view_projection, state->ProjectionMatrix, sizeof(model_view_projection));
+   m4x4_copy(model_view_projection, state->ProjectionMatrix);
    m4x4_multiply(model_view_projection, model_view);
 
    glUniformMatrix4fv(state->ModelViewProjectionMatrix_location, 1, GL_FALSE,
@@ -774,7 +786,7 @@ static void draw_gearGLES2(gear_t *gear, GLfloat *transform,
     * Create and set the NormalMatrix. It's the inverse transpose of the
     * ModelView matrix.
     */
-   memcpy(normal_matrix, model_view, sizeof (normal_matrix));
+   m4x4_copy(normal_matrix, model_view);
    m4x4_invert(normal_matrix);
    m4x4_transpose(normal_matrix);
    glUniformMatrix4fv(state->NormalMatrix_location, 1, GL_FALSE, normal_matrix);
