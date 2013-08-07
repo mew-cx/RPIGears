@@ -85,10 +85,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // number of frames to draw before checking if a key on the keyboard was hit
 #define FRAMES 30
 
-#ifndef M_PI
-   #define M_PI 3.141592654
-#endif
-
 #define check() assert(glGetError() == 0)
 
 typedef struct {
@@ -136,7 +132,8 @@ typedef struct
       ModelViewMatrix_location,
       NormalMatrix_location,
       LightSourcePosition_location,
-      MaterialColor_location;
+      MaterialColor_location,
+      DiffuseMap_location;
 // The projection matrix
    GLfloat ProjectionMatrix[16];
    
@@ -163,6 +160,7 @@ static CUBE_STATE_T _state, *state = &_state;
 static const char vertex_shader[] =
 "attribute vec3 position;\n"
 "attribute vec3 normal;\n"
+"attribute vec2 uv;\n"
 "\n"
 "uniform mat4 ModelViewMatrix;\n"
 "uniform mat4 ModelViewProjectionMatrix;\n"
@@ -173,6 +171,7 @@ static const char vertex_shader[] =
 "varying lowp vec3 L;\n"
 "varying lowp vec3 N;\n"
 "varying lowp vec3 H;\n"
+"varying lowp vec2 oUV;\n"
 "\n"
 "void main(void)\n"
 "{\n"
@@ -188,6 +187,7 @@ static const char vertex_shader[] =
 "// calculate half angle\n"
 "    H = L - V;\n"
 "\n"
+"    oUV = uv;\n"
 "    // Transform the position to clip coordinates\n"
 "    gl_Position = ModelViewProjectionMatrix * pos;\n"
 "}";
@@ -196,10 +196,12 @@ static const char vertex_shader[] =
 static const char fragment_shader[] =
 "\n"
 "uniform vec4 MaterialColor;\n"
+"uniform sampler2D DiffuseMap;\n"
 "\n"
 "varying lowp vec3 L;\n"
 "varying lowp vec3 N;\n"
 "varying lowp vec3 H;\n"
+"varying lowp vec2 oUV;\n"
 "\n"
 "void main(void)\n"
 "{\n"
@@ -208,9 +210,13 @@ static const char fragment_shader[] =
 "    lowp vec3 h = normalize(H);\n"    
 "\n"
 "    lowp float diffuse = max(dot(l, n), 0.0);\n"
-"    gl_FragColor = vec4(MaterialColor.xyz * diffuse, 1.0);\n"
+"    // get bump map vector, again expand from range-compressed\n"
+"    vec4 diffCol = texture2D(DiffuseMap, oUV);\n"
+"    // modulate diffuseMap with base material color\n"
+"    gl_FragColor = vec4(MaterialColor.xyz * diffuse, 1.0) * diffCol;\n"
 " //   add  specular\n"
-"    gl_FragColor += pow(max(0.0, dot(n, h)), 7.0);\n"
+"    // materials that have more red in them are shinnier\n"
+"    gl_FragColor += pow(max(0.0, dot(n, h)), 7.0) * diffCol.r;\n"
 "}";
 
 uint getMilliseconds()
@@ -762,6 +768,8 @@ static void draw_gearGLES2(gear_t *gear, GLfloat *transform,
    /* Set the LightSourcePosition uniform in relation to the object */
    glUniform4fv(state->LightSourcePosition_location, 1, LightSourcePosition);
 
+   glUniform1i(state->DiffuseMap_location, 0);
+
    /* 
     * Create and set the NormalMatrix. It's the inverse transpose of the
     * ModelView matrix.
@@ -786,15 +794,23 @@ static void draw_gearGLES2(gear_t *gear, GLfloat *transform,
    // setup where normal data is
    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE,
          sizeof(vertex_t), gear->normal_p);
+   // setup where uv data is
+   glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE,
+         sizeof(vertex_t), gear->texCoords_p);
 
    /* Enable the attributes */
    glEnableVertexAttribArray(0);
    glEnableVertexAttribArray(1);
+   glEnableVertexAttribArray(2);
+
+   // Bind texture surface to current vertices
+   glBindTexture(GL_TEXTURE_2D, state->texId);
     
    glDrawElements(state->drawMode, gear->tricount, GL_UNSIGNED_SHORT,
                    gear->index_p);
 
    /* Disable the attributes */
+   glDisableVertexAttribArray(2);
    glDisableVertexAttribArray(1);
    glDisableVertexAttribArray(0);
  
@@ -998,6 +1014,7 @@ static void init_scene_GLES2(void)
    glAttachShader(program, f);
    glBindAttribLocation(program, 0, "position");
    glBindAttribLocation(program, 1, "normal");
+   glBindAttribLocation(program, 2, "uv");
 
    glLinkProgram(program);
    glGetProgramInfoLog(program, sizeof msg, NULL, msg);
@@ -1012,6 +1029,7 @@ static void init_scene_GLES2(void)
    state->NormalMatrix_location = glGetUniformLocation(program, "NormalMatrix");
    state->LightSourcePosition_location = glGetUniformLocation(program, "LightSourcePosition");
    state->MaterialColor_location = glGetUniformLocation(program, "MaterialColor");
+   state->DiffuseMap_location = glGetUniformLocation(program, "DiffuseMap");
 
 }
 
